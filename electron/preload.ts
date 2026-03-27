@@ -167,6 +167,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
 	getWhisperSmallModelStatus: () => {
 		return ipcRenderer.invoke("get-whisper-small-model-status");
 	},
+	getWhisperModelPathStatus: (modelPath?: string | null) => {
+		return ipcRenderer.invoke("get-whisper-model-path-status", modelPath);
+	},
 	downloadWhisperSmallModel: () => {
 		return ipcRenderer.invoke("download-whisper-small-model");
 	},

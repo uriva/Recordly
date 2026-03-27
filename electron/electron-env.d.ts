@@ -153,6 +153,12 @@ interface Window {
 			path?: string | null;
 			error?: string;
 		}>;
+		getWhisperModelPathStatus: (modelPath?: string | null) => Promise<{
+			success: boolean;
+			exists: boolean;
+			path?: string | null;
+			error?: string;
+		}>;
 		downloadWhisperSmallModel: () => Promise<{
 			success: boolean;
 			path?: string;
@@ -183,10 +189,11 @@ interface Window {
 		setCurrentRecordingSession: (session: {
 			videoPath: string;
 			webcamPath?: string | null;
+			timeOffsetMs?: number;
 		}) => Promise<{ success: boolean }>;
 		getCurrentRecordingSession: () => Promise<{
 			success: boolean;
-			session?: { videoPath: string; webcamPath?: string | null };
+			session?: { videoPath: string; webcamPath?: string | null; timeOffsetMs?: number };
 		}>;
 		getCurrentVideoPath: () => Promise<{ success: boolean; path?: string }>;
 		clearCurrentVideoPath: () => Promise<{ success: boolean }>;

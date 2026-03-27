@@ -81,12 +81,14 @@ type WindowBounds = {
 type RecordingSessionData = {
   videoPath: string
   webcamPath?: string | null
+  timeOffsetMs?: number
 }
 
 type RecordingSessionManifest = {
-  version: 1
+  version: 1 | 2
   videoFileName: string
   webcamFileName?: string | null
+  timeOffsetMs?: number
 }
 
 type ProjectLibraryEntry = {
@@ -384,6 +386,7 @@ async function loadProjectFromPath(projectPath: string) {
   currentRecordingSession = {
     videoPath: mediaSources.videoPath,
     webcamPath: mediaSources.webcamPath,
+    timeOffsetMs: mediaSources.timeOffsetMs,
   }
   await rememberRecentProject(normalizedPath)
 
@@ -420,6 +423,7 @@ async function resolveProjectMediaSources(project: unknown): Promise<
       success: true
       videoPath: string
       webcamPath: string | null
+      timeOffsetMs: number
     }
   | {
       success: false
@@ -453,6 +457,9 @@ async function resolveProjectMediaSources(project: unknown): Promise<
     typeof (project as { editor?: { webcam?: { sourcePath?: unknown } } }).editor?.webcam?.sourcePath === 'string'
       ? ((project as { editor?: { webcam?: { sourcePath?: string } } }).editor?.webcam?.sourcePath ?? null)
       : null
+  const timeOffsetMs = normalizeRecordingTimeOffsetMs(
+    (project as { editor?: { webcam?: { timeOffsetMs?: unknown } } }).editor?.webcam?.timeOffsetMs,
+  )
   const normalizedWebcamPath = normalizeVideoSourcePath(rawWebcamPath)
 
   if (!normalizedWebcamPath) {
@@ -460,6 +467,7 @@ async function resolveProjectMediaSources(project: unknown): Promise<
       success: true,
       videoPath: normalizedVideoPath,
       webcamPath: null,
+      timeOffsetMs,
     }
   }
 
@@ -469,14 +477,22 @@ async function resolveProjectMediaSources(project: unknown): Promise<
       success: true,
       videoPath: normalizedVideoPath,
       webcamPath: normalizedWebcamPath,
+      timeOffsetMs,
     }
   } catch {
     return {
       success: true,
       videoPath: normalizedVideoPath,
       webcamPath: null,
+      timeOffsetMs,
     }
   }
+}
+
+function normalizeRecordingTimeOffsetMs(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(value)
+    : 0
 }
 
 function getRecordingSessionManifestPath(videoPath: string) {
@@ -500,9 +516,10 @@ async function persistRecordingSessionManifest(session: RecordingSessionData): P
   }
 
   const manifest: RecordingSessionManifest = {
-    version: 1,
+    version: 2,
     videoFileName: path.basename(normalizedVideoPath),
     webcamFileName: path.basename(normalizedWebcamPath),
+    timeOffsetMs: normalizeRecordingTimeOffsetMs(session.timeOffsetMs),
   }
 
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8')
@@ -519,7 +536,7 @@ async function resolveRecordingSessionManifest(videoPath?: string | null): Promi
   try {
     const content = await fs.readFile(manifestPath, 'utf-8')
     const parsed = JSON.parse(content) as Partial<RecordingSessionManifest>
-    if (parsed.version !== 1) {
+    if (parsed.version !== 1 && parsed.version !== 2) {
       return null
     }
 
@@ -531,6 +548,7 @@ async function resolveRecordingSessionManifest(videoPath?: string | null): Promi
       return {
         videoPath: normalizedVideoPath,
         webcamPath: null,
+        timeOffsetMs: 0,
       }
     }
 
@@ -540,6 +558,7 @@ async function resolveRecordingSessionManifest(videoPath?: string | null): Promi
     return {
       videoPath: normalizedVideoPath,
       webcamPath,
+      timeOffsetMs: normalizeRecordingTimeOffsetMs(parsed.timeOffsetMs),
     }
   } catch {
     return null
@@ -594,6 +613,7 @@ async function resolveRecordingSession(videoPath?: string | null): Promise<Recor
   return {
     videoPath: normalizedVideoPath,
     webcamPath: linkedWebcamPath,
+    timeOffsetMs: 0,
   }
 }
 
@@ -948,18 +968,33 @@ function sendWhisperModelDownloadProgress(
 }
 
 async function getWhisperSmallModelStatus() {
+  return getWhisperModelPathStatus(WHISPER_SMALL_MODEL_PATH)
+}
+
+async function getWhisperModelPathStatus(modelPath?: string | null) {
+  const requestedPath = typeof modelPath === 'string' ? modelPath.trim() : ''
+  if (!requestedPath) {
+    return {
+      success: true,
+      exists: false,
+      path: null,
+    }
+  }
+
+  const normalizedPath = path.resolve(requestedPath)
+
   try {
-    await fs.access(WHISPER_SMALL_MODEL_PATH, fsConstants.R_OK)
+    await fs.access(normalizedPath, fsConstants.R_OK)
     return {
       success: true,
       exists: true,
-      path: WHISPER_SMALL_MODEL_PATH,
+      path: normalizedPath,
     }
   } catch {
     return {
       success: true,
       exists: false,
-      path: null,
+      path: normalizedPath,
     }
   }
 }
@@ -3927,6 +3962,14 @@ body{background:transparent;overflow:hidden;width:100vw;height:100vh}
     }
   })
 
+  ipcMain.handle('get-whisper-model-path-status', async (_, modelPath?: string | null) => {
+    try {
+      return await getWhisperModelPathStatus(modelPath)
+    } catch (error) {
+      return { success: false, exists: false, path: null, error: String(error) }
+    }
+  })
+
   ipcMain.handle('download-whisper-small-model', async (event) => {
     try {
       const existing = await getWhisperSmallModelStatus()
@@ -4241,6 +4284,7 @@ body{background:transparent;overflow:hidden;width:100vw;height:100vh}
       ?? {
         videoPath: currentVideoPath,
         webcamPath: null,
+        timeOffsetMs: 0,
       }
 
     currentRecordingSession = resolvedSession
@@ -4253,12 +4297,13 @@ body{background:transparent;overflow:hidden;width:100vw;height:100vh}
     return { success: true, webcamPath: resolvedSession.webcamPath ?? null }
   })
 
-  ipcMain.handle('set-current-recording-session', async (_, session: { videoPath: string; webcamPath?: string | null }) => {
+  ipcMain.handle('set-current-recording-session', async (_, session: { videoPath: string; webcamPath?: string | null; timeOffsetMs?: number }) => {
     const normalizedVideoPath = normalizeVideoSourcePath(session.videoPath) ?? session.videoPath
     currentVideoPath = normalizedVideoPath
     currentRecordingSession = {
       videoPath: normalizedVideoPath,
       webcamPath: normalizeVideoSourcePath(session.webcamPath ?? null),
+      timeOffsetMs: normalizeRecordingTimeOffsetMs(session.timeOffsetMs),
     }
     currentProjectPath = null
     await persistRecordingSessionManifest(currentRecordingSession)
