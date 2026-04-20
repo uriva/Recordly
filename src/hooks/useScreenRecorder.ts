@@ -1558,6 +1558,10 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
         } else {
           preAcquiredLinuxStream = await acquireLinuxPortalStream(false);
         }
+
+        // Give the Wayland Portal dialog a brief moment to fully close
+        // so the UI can draw the countdown correctly.
+        await new Promise((resolve) => setTimeout(resolve, 300));
       } catch (error) {
         console.warn(
           "Failed to pre-acquire Linux portal stream (likely cancelled):",
