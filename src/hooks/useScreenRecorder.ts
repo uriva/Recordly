@@ -859,11 +859,6 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 				}
 			}
 
-			const permissionsReady = await preparePermissions();
-			if (!permissionsReady) {
-				return;
-			}
-
 			recordingSessionTimestamp.current = Date.now();
 			resetRecordingClock(recordingSessionTimestamp.current);
 			await prepareWebcamRecorder();
@@ -1424,6 +1419,14 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 
 		if (recording) {
 			stopRecording.current();
+			return;
+		}
+
+		// We need to request permissions BEFORE the countdown because:
+		// 1. the screen permission dialog would interrupt/delay the countdown.
+		// 2. if the user cancels or denies the permission, we shouldn't have started the countdown.
+		const permissionsReady = await preparePermissions();
+		if (!permissionsReady) {
 			return;
 		}
 
